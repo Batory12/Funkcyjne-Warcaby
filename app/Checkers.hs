@@ -6,9 +6,9 @@ import Text.Read (reads)
 
 -- Types
 type Square = (Int, Int)  -- (row, col)
-data Color = Red | Black deriving (Eq, Show)
+data PawnColor = Red | Black deriving (Eq, Show)
 data PieceType = Man | King deriving (Eq, Show)
-data Piece = Piece Color PieceType deriving (Eq, Show)
+data Piece = Piece PawnColor PieceType deriving (Eq, Show)
 type Board = [(Square, Piece)]
 type Move = (Square, Square, Maybe Square)  -- (start, end, captured square if jump)
 
@@ -30,7 +30,7 @@ initialBoard =
     [((r, c), Piece Black Man) | r <- [5..7], c <- [0..7], (r + c) `mod` 2 == 1]
 
 -- Movement logic
-possibleMoves :: Board -> Color -> Square -> [Move]
+possibleMoves :: Board -> PawnColor -> Square -> [Move]
 possibleMoves board player square = 
     case getPiece board square of
         Nothing -> []
@@ -52,10 +52,10 @@ possibleMoves board player square =
                              maybe False (\p -> colorOf p /= color) (getPiece board midSquare)]
             in jumpMoves ++ if null jumpMoves then simpleMoves else []
 
-colorOf :: Piece -> Color
+colorOf :: Piece -> PawnColor
 colorOf (Piece c _) = c
 
-allPossibleMoves :: Board -> Color -> [Move]
+allPossibleMoves :: Board -> PawnColor -> [Move]
 allPossibleMoves board player = concat [possibleMoves board player square | (square, piece) <- board, colorOf piece == player]
 
 applyMove :: Board -> Move -> Board
@@ -68,7 +68,7 @@ applyMove board (start, end, captured) =
         boardWithoutCaptured = maybe boardWithoutStart (\sq -> filter ((/= sq) . fst) boardWithoutStart) captured
     in (end, newPiece) : boardWithoutCaptured
 
-gameOver :: Board -> Maybe Color
+gameOver :: Board -> Maybe PawnColor
 gameOver board = 
     let redMoves = allPossibleMoves board Red
         blackMoves = allPossibleMoves board Black
@@ -93,7 +93,7 @@ printBoard board =
     in unlines $ header : [rowStr r | r <- rows]
 
 -- Plays the game interactively
-playGame :: Board -> Color -> IO ()
+playGame :: Board -> PawnColor -> IO ()
 playGame board player = do
     putStrLn $ "\nCurrent board:\n" ++ printBoard board
     case gameOver board of
@@ -134,7 +134,7 @@ playGame board player = do
     thrd (_, _, x) = x
 
 -- Continues a player's turn for multi-jumps with enhanced prompts
-playGameMultiJump :: Board -> Color -> Square -> IO ()
+playGameMultiJump :: Board -> PawnColor -> Square -> IO ()
 playGameMultiJump board player square = do
     putStrLn $ "\nCurrent board:\n" ++ printBoard board
     let jumpMoves = [m | m@(start, _, Just _) <- possibleMoves board player square]
