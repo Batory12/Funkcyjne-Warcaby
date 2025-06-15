@@ -24,6 +24,15 @@ getPiece board square = lookup square board
 isValidSquare :: Square -> Bool
 isValidSquare (r, c) = r >= 0 && r <= 7 && c >= 0 && c <= 7 && (r + c) `mod` 2 == 1
 
+-- Check if all squares between two points on a diagonal are empty
+isPathClear :: Board -> Square -> Square -> Bool
+isPathClear board (r1, c1) (r2, c2) =
+    let dr = signum (r2 - r1)
+        dc = signum (c2 - c1)
+        steps = abs (r2 - r1) - 1
+        intermediateSquares = [(r1 + i * dr, c1 + i * dc) | i <- [1..steps]]
+    in all (\sq -> isValidSquare sq && isNothing (getPiece board sq)) intermediateSquares
+
 initialBoard :: Board
 initialBoard = 
     [((r, c), Piece Red Man) | r <- [0..2], c <- [0..7], (r + c) `mod` 2 == 1] ++
@@ -42,14 +51,28 @@ possibleMoves board player square =
                               let newSquare = (r + dr, c + dc), 
                               isValidSquare newSquare, 
                               isNothing (getPiece board newSquare)]
-                jumpMoves = [(square, (r + 2*dr, c + 2*dc), Just (r + dr, c + dc)) | 
-                             (dr, dc) <- if pieceType == King then [(1, 1), (1, -1), (-1, 1), (-1, -1)] else [(dr2 `div` 2, 1), (dr2 `div` 2, -1)], 
-                             let (r, c) = square, 
-                             let midSquare = (r + dr, c + dc), 
-                             let endSquare = (r + 2*dr, c + 2*dc), 
-                             isValidSquare endSquare, 
-                             isNothing (getPiece board endSquare), 
-                             maybe False (\p -> colorOf p /= color) (getPiece board midSquare)]
+                jumpMoves = if pieceType == King 
+                            then [(square, (r + i * dr, c + i * dc), Just (r + j * dr, c + j * dc)) |
+                                  (dr, dc) <- directions,
+                                  let (r, c) = square,
+                                  i <- [2..7],  -- Distance to landing square
+                                  let endSquare = (r + i * dr, c + i * dc),
+                                  isValidSquare endSquare,
+                                  isNothing (getPiece board endSquare),
+                                  j <- [1..i-1],  -- Distance to captured piece
+                                  let midSquare = (r + j * dr, c + j * dc),
+                                  isValidSquare midSquare,
+                                  maybe False (\p -> colorOf p /= color) (getPiece board midSquare),
+                                  isPathClear board square midSquare,
+                                  isPathClear board midSquare endSquare]
+                            else [(square, (r + 2*dr, c + 2*dc), Just (r + dr, c + dc)) | 
+                                  (dr, dc) <- [(dr2 `div` 2, 1), (dr2 `div` 2, -1)], 
+                                  let (r, c) = square, 
+                                  let midSquare = (r + dr, c + dc), 
+                                  let endSquare = (r + 2*dr, c + 2*dc), 
+                                  isValidSquare endSquare, 
+                                  isNothing (getPiece board endSquare), 
+                                  maybe False (\p -> colorOf p /= color) (getPiece board midSquare)]
             in jumpMoves ++ if null jumpMoves then simpleMoves else []
 
 colorOf :: Piece -> PawnColor
@@ -112,23 +135,47 @@ playGame board player = do
                             _ -> Nothing
                     case parsed of
                         Just [r1, c1, r2, c2] -> do
-                            let move = ((r1, c1), (r2, c2), if abs (r2 - r1) == 2 then Just ((r1 + r2) `div` 2, (c1 + c2) `div` 2) else Nothing)
-                            if move `elem` availableMoves
+                            let start = (r1, c1)
+                                end = (r2, c2)
+                                possibleJumps = [m | m@(s, e, Just _) <- possibleMoves board player start, e == end]
+                                captured = case possibleJumps of
+                                    (m:_) -> thrd m
+                                    _ -> if abs (r2 - r1) == 2 && abs (c2 - c1) == 2 then Just ((r1 + r2) `div` 2, (c1 + c2) `div` 2) else Nothing
+                                move = (start, end, captured)
+                            if not (isValidSquare start)
                                 then do
-                                    let newBoard = applyMove board move
-                                        isJump = isJust (thrd move)
-                                        newPieceSquare = let (_, end, _) = move in end
-                                        nextJumps = [m | m@(start, _, Just _) <- possibleMoves newBoard player newPieceSquare]
-                                    if isJump && not (null nextJumps)
-                                        then do
-                                            putStrLn $ "\nYou landed at " ++ show newPieceSquare ++ " and can make another jump."
-                                            playGameMultiJump newBoard player newPieceSquare
-                                        else playGame newBoard (if player == Red then Black else Red)
-                                else do
-                                    putStrLn "Invalid move! Try again."
+                                    putStrLn $ "Invalid move: Starting square " ++ show start ++ " is not a valid playable square."
                                     playGame board player
+                                else if not (isValidSquare end)
+                                    then do
+                                        putStrLn $ "Invalid move: Ending square " ++ show end ++ " is not a valid playable square."
+                                        playGame board player
+                                    else case getPiece board start of
+                                        Nothing -> do
+                                            putStrLn $ "Invalid move: No piece at starting square " ++ show start ++ "."
+                                            playGame board player
+                                        Just piece -> if colorOf piece /= player
+                                            then do
+                                                putStrLn $ "Invalid move: Piece at " ++ show start ++ " is not yours (belongs to " ++ show (colorOf piece) ++ ")."
+                                                playGame board player
+                                            else if not (move `elem` availableMoves)
+                                                then do
+                                                    let hasJumps = not (null jumpMoves)
+                                                    putStrLn $ "Invalid move: The move from " ++ show start ++ " to " ++ show end ++ 
+                                                               (if hasJumps then " is not a valid jump, but a jump is required." else " is not a valid move or jump.")
+                                                    playGame board player
+                                                else do
+                                                    let newBoard = applyMove board move
+                                                        isJump = isJust (thrd move)
+                                                        newPieceSquare = end
+                                                        nextJumps = [m | m@(start', _, Just _) <- possibleMoves newBoard player newPieceSquare]
+                                                    if isJump && not (null nextJumps)
+                                                        then do
+                                                            putStrLn $ "\nYou landed at " ++ show newPieceSquare ++ " and can make another jump."
+                                                            playGameMultiJump newBoard player newPieceSquare
+                                                        else playGame newBoard (if player == Red then Black else Red)
                         _ -> do
-                            putStrLn "Invalid input! Please enter four numbers (row1 col1 row2 col2)."
+                            putStrLn "Invalid input: Please enter four numbers (row1 col1 row2 col2)."
                             playGame board player
   where
     thrd (_, _, x) = x
@@ -150,19 +197,27 @@ playGameMultiJump board player square = do
                     _ -> Nothing
             case parsed of
                 Just [r2, c2] -> do
-                    let move = (square, (r2, c2), if abs (r2 - fst square) == 2 then Just ((fst square + r2) `div` 2, (snd square + c2) `div` 2) else Nothing)
-                    if move `elem` jumpMoves
+                    let end = (r2, c2)
+                        possibleJumps = [m | m@(s, e, Just _) <- jumpMoves, e == end]
+                        move = case possibleJumps of
+                            (m:_) -> m
+                            _ -> (square, end, if abs (r2 - fst square) == 2 && abs (c2 - snd square) == 2 then Just ((fst square + r2) `div` 2, (snd square + c2) `div` 2) else Nothing)
+                    if not (isValidSquare end)
                         then do
-                            let newBoard = applyMove board move
-                                nextJumps = [m | m@(start, _, Just _) <- possibleMoves newBoard player (r2, c2)]
-                            if not (null nextJumps)
-                                then playGameMultiJump newBoard player (r2, c2)
-                                else playGame newBoard (if player == Red then Black else Red)
-                        else do
-                            putStrLn "Invalid jump! Try again."
+                            putStrLn $ "Invalid jump: Ending square " ++ show end ++ " is not a valid playable square."
                             playGameMultiJump board player square
+                        else if not (move `elem` jumpMoves)
+                            then do
+                                putStrLn $ "Invalid jump: The jump from " ++ show square ++ " to " ++ show end ++ " is not a valid jump."
+                                playGameMultiJump board player square
+                            else do
+                                let newBoard = applyMove board move
+                                    nextJumps = [m | m@(start', _, Just _) <- possibleMoves newBoard player end]
+                                if not (null nextJumps)
+                                    then playGameMultiJump newBoard player end
+                                    else playGame newBoard (if player == Red then Black else Red)
                 _ -> do
-                    putStrLn "Invalid input! Please enter two numbers (row2 col2)."
+                    putStrLn "Invalid input: Please enter two numbers (row2 col2)."
                     playGameMultiJump board player square
 
 -- Main function to start the game
