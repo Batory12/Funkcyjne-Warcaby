@@ -2,7 +2,7 @@ module Checkers where
 
 import Data.Maybe (isJust, fromJust, catMaybes, isNothing, maybe)
 import Data.List (find)
-import Text.Read (reads)
+import Text.Read (read
 
 -- Types
 type Square = (Int, Int)  -- (row, col)
