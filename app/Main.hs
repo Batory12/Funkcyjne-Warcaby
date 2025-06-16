@@ -63,7 +63,6 @@ renderSelection Nothing = blank
 renderSelection (Just (r, c)) =
     translate (xCoord c) (yCoord r) $ color yellow $ rectangleWire squareSize squareSize
 
--- POPRAWKA: Prawidłowe filtrowanie ruchów w liście składanej
 renderValidMoveHighlights :: GameState -> Picture
 renderValidMoveHighlights gs = case selectedSquare gs of
     Nothing -> blank
@@ -119,8 +118,9 @@ processMove gs move@(start, end, captured) =
 handleInput :: Event -> GameState -> GameState
 handleInput _ gs | isJust (gameOverState gs) || currentPlayer gs == Black = gs -- Ignoruj input, gdy gra się skończyła lub tura bota
 handleInput (EventKey (MouseButton LeftButton) Down _ (mx, my)) gs =
-    let c = floor ((mx + 4 * squareSize - squareSize / 2) / squareSize)
-        r = 7 - floor ((my + 4 * squareSize - squareSize / 2) / squareSize)
+    let -- POPRAWKA: Prawidłowe obliczanie współrzędnych siatki na podstawie kliknięcia myszą
+        c = floor ((mx + 4 * squareSize) / squareSize)
+        r = 7 - floor ((my + 4 * squareSize) / squareSize)
         clickedSquare = (r, c)
     in if not (isValidSquare clickedSquare)
        then gs { selectedSquare = Nothing }
